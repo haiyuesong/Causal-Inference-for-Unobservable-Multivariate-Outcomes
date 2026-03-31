@@ -3,27 +3,22 @@ library(stringr)
 library(lubridate)
 library(tidyr)
 library(gtsummary)
-
 ## ------------------------------------------------------------
 ## 1. Load data
 ## ------------------------------------------------------------
-df_demo  <- read.csv("AMYLOID_FMRI_Cohort_Study_My_Table_20Nov2025.csv",
+df_demo  <- read_csv("ADNI3_Amyloid-Positive_fMRI_My_Table.csv", 
+                     col_types = cols(PTDOBYY = col_date(format = "%m/%d/%Y")))
+
+df_amy   <- read.csv("AMYLOID_FMRI_Cohort_Study_UCBERKELEY_AMY_6MM.csv",
                      stringsAsFactors = FALSE)
 
-df_amy   <- read.csv("AMYLOID_FMRI_Cohort_Study_UCBERKELEY_AMY_6MM_20Nov2025.csv",
+df_fmri  <- read.csv("AMYLOID_FMRI_Cohort_Study_Functional_MRI_Images.csv",
                      stringsAsFactors = FALSE)
 
-df_fmri  <- read.csv("AMYLOID_FMRI_Cohort_Study_Functional_MRI_Images_20Nov2025.csv",
-                     stringsAsFactors = FALSE)
-
-df_mri <- read.csv("ADNI3_Amyloid-Positive_fMRI_Key_MRI_04Dec2025.csv",
+df_mri <- read.csv("ADNI3_Amyloid-Positive_fMRI_Key_MRI.csv",
                    stringsAsFactors = FALSE)
-
 ## ------------------------------------------------------------
 ## 2. Clean DEMOGRAPHICS (df_demo)
-##    - Fill PTEDUCAT, PTDOBYY, etc. within subject
-##    - One row per subject
-##    - Code sex and APOE4 indicator
 ## ------------------------------------------------------------
 df_demo_clean <- df_demo %>%
   arrange(subject_id, visit) %>%
@@ -36,7 +31,8 @@ df_demo_clean <- df_demo %>%
     # APOE4 indicator: 1 if any "4" allele present (e.g. "3/4", "4/4")
     apoe4 = ifelse(str_detect(toupper(GENOTYPE), "4"), 1, 0)
   ) %>%
-  select(subject_id, sex, education = PTEDUCAT, birth_year = PTDOBYY, apoe4)
+  filter(entry_research_group %in% c("CN","MCI","EMCI","SMC")) %>%
+  select(subject_id, sex, education = PTEDUCAT, birth_year = PTDOBYY, apoe4, entry_research_group)
 
 ## ------------------------------------------------------------
 ## 3. Clean AMYLOID PET table (df_amy)
@@ -110,8 +106,10 @@ df_amy_fmri <- df_pairs %>%
 ## ------------------------------------------------------------
 df_mri_pairs <- df_mri_clean %>%
   inner_join(df_amy_fmri, by = "subject_id") %>%
-  mutate(diff_days = as.numeric(fmri_date - mri_date)) %>%
-  filter(diff_days == 0) %>%
+  mutate(diff_days = abs(as.numeric(fmri_date - mri_date))) %>%
+  filter(diff_days < 365) %>%
+  group_by(subject_id, image_id) %>%
+  slice_min(diff_days, with_ties = FALSE) %>%
   dplyr::select(-diff_days)
 
 ## ------------------------------------------------------------
@@ -120,7 +118,7 @@ df_mri_pairs <- df_mri_clean %>%
 df_merged <- df_mri_pairs %>%
   left_join(df_demo_clean, by = "subject_id") %>%
   mutate(
-    age = year(fmri_date) - birth_year
+    age = year(fmri_date) - year(birth_year)
   )
 
 ## ------------------------------------------------------------
@@ -136,14 +134,16 @@ df_final <- df_merged %>%
     education,
     apoe4,
     amyloid_status,
-    image_id
+    image_id,
+    entry_research_group
   ) %>%
   group_by(subject_id) %>%
   slice_max(fmri_date, with_ties = FALSE) %>%
   rename(image_date = fmri_date) %>%
   ungroup() %>%
+  drop_na() %>%
   # drop fmri_date if you don't want it in the final analysis table:
-  select(subject_id, age, sex, education, apoe4, amyloid_status, image_id,t1_image_id,image_date)
+  select(subject_id, age, sex, education, apoe4, amyloid_status, image_id,t1_image_id,image_date,entry_research_group)
 View(df_final)
 write.csv(df_final,"cohort.csv")
 
@@ -167,7 +167,7 @@ df_final_tab <- df_final %>%
 tbl_amyloid <- df_final_tab %>%
   tbl_summary(
     by = amyloid_status,
-    include = c(age, sex, education, apoe4),
+    include = c(age, sex, education, apoe4, entry_research_group),
     statistic = list(
       all_continuous() ~ "{mean} ({sd})",
       all_categorical() ~ "{n} ({p}%)"
@@ -185,3 +185,4 @@ tbl_amyloid
 ## ------------------------------------------------------------
 paste(unique(df_final$image_id),collapse = ",")
 paste(unique(df_final$t1_image_id),collapse = ",")
+
