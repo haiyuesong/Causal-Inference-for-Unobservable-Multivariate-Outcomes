@@ -16,3 +16,18 @@
 - `data application/functions.R`: Contains helper functions used throughout the data application pipeline.
 - `data application/cohort.R`: Constructs the analytic cohort and prepares subject-level covariates and study variables.
 - `data application/causal_analysis.R`: Performs the causal inference analysis using the derived effective connectivity outcomes and visualizes the results (Figure 4).
+
+## Citation
+Song, H., Eloyan, A., & Lee, Y. (2026). Causal Inference for Unobservable Multivariate Outcomes, with Applications to Brain Effective Connectivity. arXiv:2604.00390.
+
+```bibtex
+@article{song2026causal,
+  title   = {Causal Inference for Unobservable Multivariate Outcomes, with Applications to Brain Effective Connectivity},
+  author  = {Song, Haiyue and Eloyan, Ani and Lee, Youjin},
+  year    = {2026},
+  eprint  = {2604.00390},
+  archivePrefix = {arXiv},
+  primaryClass  = {stat.ME},
+  url     = {https://arxiv.org/abs/2604.00390}
+}
+```
