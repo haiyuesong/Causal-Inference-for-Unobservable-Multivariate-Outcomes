@@ -451,3 +451,114 @@ write.csv(ATE_mat, "ATE_mat.csv",         row.names = FALSE)
 write.csv(SIG_mat, "SIG_mat.csv",         row.names = FALSE)
 
 
+## ============================================================
+## OVERLAP DIAGNOSTICS, WEIGHT DIAGNOSTICS, SENSITIVITY ANALYSIS
+## ============================================================
+idx_mat  <- vec_to_square_matrix(seq_along(tau.estimate), nroi)
+lin_3555 <- idx_mat[35, 55]
+
+## ------------------------------------------------------------
+## 1. Overlap diagnostics
+## ------------------------------------------------------------
+ps_df <- tibble(ps = propensity_scores,
+                grp = factor(D, levels = c(0, 1),
+                             labels = c("Amyloid Negative", "Amyloid Positive")))
+
+ps_summary <- ps_df %>%
+  group_by(grp) %>%
+  summarise(min = min(ps), q25 = quantile(ps, .25),
+            median = median(ps), q75 = quantile(ps, .75),
+            max = max(ps), .groups = "drop")
+cat("\nPropensity score summary by group:\n"); print(ps_summary)
+
+overlap_lo <- max(tapply(propensity_scores, D, min))
+overlap_hi <- min(tapply(propensity_scores, D, max))
+n_outside  <- sum(propensity_scores < overlap_lo | propensity_scores > overlap_hi)
+cat("\nOverall PS range: [", round(min(propensity_scores), 3), ",",
+    round(max(propensity_scores), 3), "]\n")
+cat("Common support:  [", round(overlap_lo, 3), ",", round(overlap_hi, 3), "]\n")
+cat("Subjects outside common support:", n_outside, "of", n, "\n")
+
+# figure
+p_overlap <- ggplot(ps_df, aes(x = ps, fill = grp)) +
+  geom_histogram(data = subset(ps_df, grp == "Amyloid Positive"),
+                 aes(y = after_stat(count)), bins = 20, alpha = .6) +
+  geom_histogram(data = subset(ps_df, grp == "Amyloid Negative"),
+                 aes(y = -after_stat(count)), bins = 20, alpha = .6) +
+  geom_hline(yintercept = 0, linewidth = .3) +
+  labs(x = "Estimated propensity score", y = "Count", fill = NULL) +
+  theme_minimal(base_size = 13) +
+  theme(legend.position = "top")
+ggsave("ps_overlap.pdf", p_overlap, width = 6, height = 4)
+
+## ------------------------------------------------------------
+## 2. Weight diagnostics
+## ------------------------------------------------------------
+cat("\nMax IPW weight (abs):", round(max(abs(weight)), 2), "\n")
+cat("Weight quantiles (|w|):\n")
+print(round(quantile(abs(weight), c(.5, .9, .99, 1)), 2))
+
+## ------------------------------------------------------------
+## 3. Trimming sensitivity for the surviving edge (35 -> 55)
+##    Re-estimate tau AND its z-statistic under symmetric trimming,
+##    so we can report whether it stays significant, not just its size.
+## ------------------------------------------------------------
+trim_grid <- c(0, 0.01, 0.025, 0.05, 0.10)
+
+trim_res <- lapply(trim_grid, function(t) {
+  keep <- propensity_scores > t & propensity_scores < (1 - t)
+  nt   <- sum(keep)
+  Dt   <- D[keep]
+  Wt   <- W[keep, , drop = FALSE]
+  Xt   <- X[keep, , drop = FALSE]
+  
+  # refit propensity model on the trimmed sample for internal consistency
+  psm_t <- glm(Dt ~ Wt, family = binomial())
+  pst   <- as.numeric(plogis(predict(psm_t)))
+  wt    <- ifelse(Dt == 1, 1 / pst, -1 / (1 - pst))
+  
+  tau_t <- colMeans(Xt * wt, na.rm = TRUE)
+  
+  # variance for edge (35,55) via its influence function on the trimmed sample
+  q_t     <- ncol(Wt)
+  FI_t    <- Reduce(`+`, lapply(seq_len(nt), function(i)
+    pst[i] * (1 - pst[i]) * (Wt[i, ] %*% t(Wt[i, ]))))/nt
+  Theta_t <- solve(FI_t)
+  wH_t    <- Dt * (1 - pst)/pst + (1 - Dt) * pst/(1 - pst)
+  Hj      <- colMeans(wH_t * Xt[, lin_3555] * Wt, na.rm = TRUE)
+  xj      <- Xt[, lin_3555]
+  eta_j   <- ifelse(is.na(xj), 0,
+                    xj * wt - as.numeric(Hj %*% Theta_t %*% t(Wt)) *
+                      (Dt - pst))
+  var_j   <- mean((eta_j - tau_t[lin_3555])^2)
+  z_j     <- sqrt(nt) * tau_t[lin_3555] / sqrt(var_j)
+  
+  tibble(trim = t, n_kept = nt,
+         tau_3555 = tau_t[lin_3555],
+         z_3555   = z_j,
+         p_3555   = 2 * (1 - pnorm(abs(z_j))))
+})
+cat("\nTrimming sensitivity for edge (35,55):\n")
+print(bind_rows(trim_res))
+
+## ------------------------------------------------------------
+## 4. E-value for the discovery
+##    Sign fix: feed the absolute standardized effect; use the
+##    simultaneous CI limit nearest the null.
+## ------------------------------------------------------------
+est_3555   <- tau.estimate[lin_3555]
+ci_lo_3555 <- CI_lower_35_55        # simultaneous, from your script
+ci_hi_3555 <- CI_upper_35_55
+sd_3555    <- sd(X[, lin_3555], na.rm = TRUE)
+
+library(EValue)
+d_est <- abs(est_3555) / sd_3555
+se_d  <- abs(ci_hi_3555 - ci_lo_3555) / (2 * 1.96) / sd_3555
+ev    <- evalues.MD(est = d_est, se = se_d)
+
+cat("\nEdge (35,55): est =", round(est_3555, 3),
+    " simult. CI = [", round(ci_lo_3555, 3), ",", round(ci_hi_3555, 3), "]\n")
+cat("Edge SD =", round(sd_3555, 3),
+    " standardized d =", round(d_est, 3), "\n")
+cat("E-values (point estimate and CI limit nearest null):\n")
+print(ev)
