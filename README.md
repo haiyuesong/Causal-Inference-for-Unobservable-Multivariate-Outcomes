@@ -15,7 +15,7 @@
 - `data application/effective_connectivity_computation.R`: Computes subject-level brain effective connectivity measures from preprocessed fMRI time series.
 - `data application/functions.R`: Contains helper functions used throughout the data application pipeline.
 - `data application/cohort.R`: Constructs the analytic cohort and prepares subject-level covariates and study variables.
-- `data application/causal_analysis.R`: Performs the causal inference analysis using the derived effective connectivity outcomes and visualizes the results (Figure 4).
+- `data application/causal_analysis.R`: Performs the causal inference analysis using the derived effective connectivity outcomes and visualizes the results (Figure 4). Implements diagnostics and sensitivity analysis. 
 
 ## Citation
 Song, H., Eloyan, A., & Lee, Y. (2026). Causal Inference for Unobservable Multivariate Outcomes, with Applications to Brain Effective Connectivity. arXiv:2604.00390.
